@@ -1,0 +1,247 @@
+/* ------------------------------------------------------------------------------------------------------------------------------------------------
+--- Author : Damien GARROS / dgarros@juniper.net
+--- Version : v1.1
+--- Last Modified : 2012-April-02
+--- Tested on EX4200-VC & EX8200-VC
+--- Description ---
+
+        This script will gather several information about VCP links and populate Juniper Mibs entries with them :
+        Information gather per VCP link
+               - Input/Output Bytes per second  Counter 64
+               - CRC Errors                     Counter 64
+               - Input/Output Bytes             Counter 64
+        
+        A VCP link not available for one hour will be automatically removed from Mib 
+               
+        By default, only vcp-* links will be gather, if you want to get all VCP links including "internal" you must add "ports all" option 
+                op ex-vcp-to-mib ports all
+               
+        To check if Mib is correctly populated, and to get OID for each entry, we can use these commands from CLI : 
+                root@EX> show snmp mib walk jnxUtilCounter64Value
+                root@EX> show snmp mib walk jnxUtilCounter64Value ascii | match 4743
+        
+        As a reminder 
+                jnxUtilCounter32Value           1.3.6.1.4.1.2636.3.47.1.1.1.1.2
+                jnxUtilCounter64Value           1.3.6.1.4.1.2636.3.47.1.1.2.1.2
+                jnxUtilIntegerValue             1.3.6.1.4.1.2636.3.47.1.1.3.1.2
+                jnxUtilUintValue                1.3.6.1.4.1.2636.3.47.1.1.4.1.2
+                jnxUtilStringValue              1.3.6.1.4.1.2636.3.47.1.1.5.1.2
+
+       for-each( $vcport-stat-ext-output/multi-routing-engine-item/virtual-chassis-port-statistics-information/port-list/statistics ) {
+                
+                
+--- Installation guide ---           
+        This script can run as "OP" or "Events" script
+        
+        To execute it as "op script"
+                Copy it on /var/db/scripts/op on each RE
+                Add "set system scripts op file ex-vcp-to-mib.slax"
+                
+                Then, execute it from cli with 
+                        op ex-vcp-to-mib <option>
+                        
+        To execute it as "Event script"
+                 Copy it on /var/db/scripts/event on each RE
+                 
+                 Declare it into the configuration
+                        set event-options policy VCP-TO-MIB events <event-name>
+                        set event-options policy VCP-TO-MIB then event-script "ex-vcp-to-mib <option>"
+                        
+                 if you want to execute it periodically, you can create an event like this:
+                        set event-options generate-event 2MIN time-interval 120
+                 
+                 For the first execution as Event script, it is recommanded to activate debug to syslog
+                        set event-options policy VCP-TO-MIB then event-script "ex-vcp-to-mib debug syslog"
+                 Then you can monitor log file to confirm if script is running as expected.
+                 
+--- Known limitations ---   
+        -- on old Junos Version (discover on 10.0), the get-virtual-chassis-port-statistics output is different and the script doesn't get the VCP list. 
+        As a workaroud, you have to replace this line
+                for-each( $vcport-stat-ext-output/multi-routing-engine-item/virtual-chassis-port-statistics-information/statistics-port-list/statistics ) {
+        With this one 
+                for-each( $vcport-stat-ext-output/multi-routing-engine-item/virtual-chassis-port-statistics-information/port-list/statistics ) {
+        
+
+ ---------------------------------------------------------------------------------------------------------------------------------------------------*/
+version 1.0;
+ 
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+ns str = "http://exslt.org/strings";
+ 
+import "../import/junos.xsl";
+ 
+var $arguments = {
+	<argument> {
+		<name> "debug";
+		<description> "Print debug messages on screen, syslog or both [ none* | screen | syslog | both ]";
+	}
+	<argument> {
+		<name> "ports";
+		<description> "Which ports do you want to record in Mib [ vcp* | all ]";
+	}
+}
+
+param $debug = "none";
+param $ports = "vcp";
+param $script-id = "4743";
+
+param $param-debug = $debug;
+param $param-ports = $ports;
+
+param $con = jcs:open();
+
+match / {
+        <op-script-results> {
+    
+                call logs( $message = "Script ex-vcp-to-mib START with scrip-id " _ $script-id );
+                
+                /* Get VC-Ports statistics */
+                var $vcport-stat-ext-cmd = <get-virtual-chassis-port-statistics> {
+                                              <extensive>;
+                                              }
+                                                                                                
+                var $vcport-stat-ext-output = jcs:execute( $con, $vcport-stat-ext-cmd );
+                
+                for-each( $vcport-stat-ext-output/multi-routing-engine-item/virtual-chassis-port-statistics-information/statistics-port-list/statistics ) {
+                        var $item = .;
+                        var $fpc = ../../../re-name;
+                        var $int-type = jcs:regex("^[a-z]+", $item/port-name);
+                        
+                        if($int-type == "vcp" or $param-ports == "all") { 
+                        
+                                /*** Input/Output Bytes per second ***/
+                                var $mibset-bps-in = <request-snmp-utility-mib-set> {
+                                        <object-type> "counter64";
+                                        <instance> $script-id _ "-" _ $fpc _ "-" _ $item/port-name _ "-bps-in";
+                                        <object-value> $item/input-bps;
+                                }
+                                var $mibset-bps-out = <request-snmp-utility-mib-set> {
+                                        <object-type> "counter64";
+                                        <instance> $script-id _ "-" _ $fpc _ "-" _ $item/port-name _ "-bps-out";
+                                        <object-value> $item/output-bps;
+                                }
+                                
+                                /*** CRC Errors ***/
+                                var $mibset-crc = <request-snmp-utility-mib-set> {
+                                        <object-type> "counter64";
+                                        <instance> $script-id _ "-" _ $fpc _ "-" _ $item/port-name _ "-crc";
+                                        <object-value> $item/crc-align-errors;
+                                }
+                                
+                                /*** Input/Output Bytes ***/
+                                var $mibset-input-bytes = <request-snmp-utility-mib-set> {
+                                        <object-type> "counter64";
+                                        <instance> $script-id _ "-" _ $fpc _ "-" _ $item/port-name _ "-bytes-in";
+                                        <object-value> $item/input-bytes;
+                                }
+                                var $mibset-output-bytes = <request-snmp-utility-mib-set> {
+                                        <object-type> "counter64";
+                                        <instance> $script-id _ "-" _ $fpc _ "-" _ $item/port-name _ "-bytes-out";
+                                        <object-value> $item/output-bytes;
+                                }
+                                
+                                /*** record entries to Mib ***/ 
+                                expr jcs:execute($con, $mibset-bps-in);
+                                expr jcs:execute($con, $mibset-bps-out);
+                                expr jcs:execute($con, $mibset-crc);
+                                expr jcs:execute($con, $mibset-input-bytes);
+                                expr jcs:execute($con, $mibset-output-bytes);
+                                
+                                call logs( $message = "VCP link added to Mib : " _ $fpc _ " " _ $item/port-name); 
+                        }
+                }
+                        
+                /*** Clean Old Entries on Utility Mib  ***/
+                call clean-old-entries( $tmpl-object-type-xml = "counter64", $tmpl-object-type-jnxUtil = "Counter64" );
+
+                /* Close RPC */
+                expr jcs:close( $con );
+	
+    }
+}
+
+template logs( $message ) {	
+        if($param-debug == "screen" or $param-debug == "both") {
+                <output> $message;         	
+        }
+        
+        if($param-debug == "syslog" or $param-debug == "both") {
+                expr jcs:syslog("external.notice", $message );
+        }
+}
+
+/*** Template to clear old entries on Utility Mibs 
+Parameters "tmpl-object-type-xml" & "tmpl-object-type-jnxUtil" specify the variable type used into the script.
+
+These parameter should have one of those value  (Be carefull : Case sensitive) 
+        $tmpl-object-type-xml           $tmpl-object-type-jnxUtil   
+          counter                         Counter32
+          counter64                       Counter64
+          integer                         Integer
+          string                          String
+          unsigned-integer                Uint
+
+***/
+template clean-old-entries( $tmpl-object-type-xml = "integer", $tmpl-object-type-jnxUtil = "Integer" )
+{
+        param $tracker-name = $script-id _ "-tracker";
+      
+        call logs( $message = "clean-old-entries start with object type : " _ $tmpl-object-type-xml); 
+                
+        /*** insert tracker ***/
+        var $mibset-fd = <request-snmp-utility-mib-set> {
+                                <object-type> $tmpl-object-type-xml;
+                                <instance> $tracker-name;
+                                <object-value> "1";
+                        }
+        expr jcs:execute($con, $mibset-fd); 
+        
+        /*** Get Utility Mibs entries ***/
+        var $utility-mibs-cmd = <walk-snmp-object> {
+                                                 <snmp-object-name> "jnxUtil" _ $tmpl-object-type-jnxUtil _ "Time";
+                                        }
+        var $utility-mibs-after = jcs:execute($con, $utility-mibs-cmd );
+        
+        /*** Locate tracker ***/
+        var $tracker = $utility-mibs-after/snmp-object/index[index-value == $tracker-name];
+                       
+        if( $tracker )
+        {         
+                /* Extract hour information from "timestamp" for tracker */
+                var $tracker-hours = jcs:regex("([a-z0-9 ]{13})([a-z0-9 ]{2})",  $tracker/../object-value);
+            
+                call logs( $message = "Tracker found : " _ $tracker/../index/index-value _ " with hour value : " _ $tracker-hours[3]); 
+                
+                /* Compare hour of each entry belongings to this script, to detect old one */ 
+                for-each( $utility-mibs-after/snmp-object ) {
+                       
+                        var $object = .; 
+                        var $object-script-id = jcs:regex("([0-9 ]{4})",  $object/index/index-value);
+            
+                        /* Check if the entry belong to this script */
+                        if( $object-script-id == $script-id)
+                        {
+                               var $object-hours = jcs:regex("([a-z0-9 ]{13})([a-z0-9 ]{2})",  $object/object-value);
+                               
+                               /* compare hour */
+                               if($object-hours[3] != $tracker-hours[3])
+                               {
+                                   call logs( $message = "Object erase from Utility Mib  : " _ $object/index/index-value _ " hour : " _ $object-hours[3]); 
+                                   
+                                   var $mibset-clear-entry = <request-snmp-utility-mib-clear> {
+                                        <object-type> $tmpl-object-type-xml;
+                                        <instance> $object/index/index-value;
+                                   }
+                                   expr jcs:execute($con, $mibset-clear-entry); 
+                               }
+                        }
+                }   
+        }        
+}
+
+
+
+
+
