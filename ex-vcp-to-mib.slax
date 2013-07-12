@@ -8,6 +8,7 @@
         This script will gather several information about VCP links and populate Juniper Mibs entries with them :
         Information gather per VCP link
                - Input/Output Bytes per second  Counter 64
+			   - Input/Output Bits per second   Counter 64
                - CRC Errors                     Counter 64
                - Input/Output Bytes             Counter 64
 			   - Status 						Counter 64
@@ -122,6 +123,10 @@ match / {
 			/*** Input/Output Bytes per second ***/
 			expr dga:add-counter64-to-mib( $con, $fpc _ "-" _ $item/port-name _ "-bps-in", $item/input-bps);
 			expr dga:add-counter64-to-mib( $con, $fpc _ "-" _ $item/port-name _ "-bps-out", $item/output-bps);
+			
+			/*** Input/Output Bit per second ***/
+			expr dga:add-counter64-to-mib( $con, $fpc _ "-" _ $item/port-name _ "-bitps-in", $item/input-bps * 8);
+			expr dga:add-counter64-to-mib( $con, $fpc _ "-" _ $item/port-name _ "-bitps-out", $item/output-bps * 8);
 			
 			/*** CRC Errors ***/					
 			expr dga:add-counter64-to-mib( $con, $fpc _ "-" _ $item/port-name _ "-crc", $item/crc-align-errors);

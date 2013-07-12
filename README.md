@@ -4,6 +4,7 @@ juniper-ex-vcp-to-mib
 This script will gather several information about VCP links and populate Juniper Mibs entries with them :
 Information gather per VCP link
 	   - Input/Output Bytes per second  Counter 64
+	   - Input/Output Bits per second   Counter 64
 	   - CRC Errors                     Counter 64
 	   - Input/Output Bytes             Counter 64
 	   - Status 						Counter 64
