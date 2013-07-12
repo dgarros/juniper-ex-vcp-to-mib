@@ -6,6 +6,11 @@ juniper-ex-vcp-to-mib
                - Input/Output Bytes per second  Counter 64
                - CRC Errors                     Counter 64
                - Input/Output Bytes             Counter 64
+			   - Status 						Counter 64
+					- Up 		>	1
+					- Down 		>	0
+					- Disabled 	>	2
+					- Absent 	>	3
         
         A VCP link not available for one hour will be automatically removed from Mib 
                
@@ -21,9 +26,7 @@ juniper-ex-vcp-to-mib
                 jnxUtilCounter64Value           1.3.6.1.4.1.2636.3.47.1.1.2.1.2
                 jnxUtilIntegerValue             1.3.6.1.4.1.2636.3.47.1.1.3.1.2
                 jnxUtilUintValue                1.3.6.1.4.1.2636.3.47.1.1.4.1.2
-                jnxUtilStringValue              1.3.6.1.4.1.2636.3.47.1.1.5.1.2
-
-       for-each( $vcport-stat-ext-output/multi-routing-engine-item/virtual-chassis-port-statistics-information/port-list/statistics ) {
+                jnxUtilStringValue              1.3.6.1.4.1.2636.3.47.1.1.5.1.2          
                 
                 
 Installation guide
